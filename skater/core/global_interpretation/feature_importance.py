@@ -94,18 +94,23 @@ class FeatureImportance(BaseGlobalInterpretation):
             filter_classes = list(filter_classes)
             assert all([i in model_instance.target_names for i in filter_classes]), err_msg
 
-        if n_samples <= self.data_set.n_rows:
+        if method == 'model-scoring' and self.data_set.y is None:
+            raise FeatureImportanceError("If labels are not provided to the Interpretation object, you"
+                                         "can only use feature importance methods that do "
+                                         "not require ground truth labels, i.e. method='prediction-variance'")
+
+        if method == 'prediction-variance':
+            inputs = self.data_set.generate_sample(strategy='random-choice',
+                                                   include_y=False,
+                                                   sample=True,
+                                                   n_samples=n_samples)
+            labels = None
+        elif method == 'model-scoring':
             inputs, labels = self.data_set.generate_sample(strategy='random-choice',
                                                            include_y=True,
                                                            sample=True,
                                                            n_samples=n_samples)
-        else:
-            inputs, labels = self.data_set.X, self.data_set.y
 
-        if method == 'model-scoring' and labels is None:
-            raise FeatureImportanceError("If labels are not set, you"
-                                         "can only use feature importance methods that do "
-                                         "not require ground truth labels")
 
         original_predictions = model_instance.predict(inputs)
         n_jobs = None if n_jobs < 0 else n_jobs
@@ -287,7 +292,7 @@ def compute_feature_importance(feature_id, input_data, estimator_fn,
     feature_names: array type
         list of feature names
     training_labels: array type
-        ground truth labels. only required if method="perfomance decrease"
+        ground truth labels. only required if method=="perfomance decrease"
     method: string
         prediction-variance: importance based on changes in predictions caused by
                              changing values of the feature space.
