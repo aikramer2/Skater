@@ -1,6 +1,5 @@
 "Specialized Exceptions for skater"
 
-
 def exception_factory(exception_name, base_exception=Exception, attributes=None):
     attribute_dict = {
         "__init__": base_exception.__init__

@@ -110,25 +110,20 @@ class DataManager(object):
         self.logger.debug("after transform X.shape: {}".format(self.X.shape))
 
         if isinstance(self.X, pd.DataFrame):
+
+            # a little nicety; users may expect dataframe column names to be used
             if feature_names is None:
                 feature_names = self.X.columns.values
-            if index is None:
-                index = range(self.n_rows)
-            self.X.index = index
 
         elif isinstance(self.X, np.ndarray):
             if feature_names is None:
                 feature_names = range(self.X.shape[1])
-            if index is None:
-                index = range(self.n_rows)
-
         else:
             raise(ValueError("Invalid: currently we only support {}"
                              "If you would like support for additional data structures let us "
                              "know!".format(self.__datatypes__)))
 
         self.feature_ids = list(feature_names)
-        self.index = list(index)
         self.data_info = {attr: None for attr in self.__attribute_keys__}
 
 
@@ -208,6 +203,10 @@ class DataManager(object):
         return self.X.shape[1]
 
     @property
+    def index(self):
+        return list(range(self.n_rows))
+
+    @property
     def values(self):
         if self.data_type == pd.DataFrame:
             result = self.X.values
@@ -215,26 +214,21 @@ class DataManager(object):
             result = self.X
         return result
 
-
     @property
     def dtypes(self):
         return pd.DataFrame(self.X, columns=self.feature_ids, index=self.index).dtypes
-
 
     @property
     def shape(self):
         return self.X.shape
 
-
     @property
     def n_rows(self):
         return self.shape[0]
 
-
     @property
     def dim(self):
         return self.shape[1]
-
 
     def _calculate_feature_info(self):
         feature_info = {}
@@ -256,7 +250,6 @@ class DataManager(object):
             self.data_info[self._feature_info] = self._calculate_feature_info()
         return self.data_info[self._feature_info]
 
-
     def _build_metastore(self):
 
         medians = np.median(self.X, axis=0).reshape(1, self.dim)
@@ -275,7 +268,6 @@ class DataManager(object):
         for i in self.feature_ids:
             yield i
 
-
     def __setitem__(self, key, newval):
         if issubclass(self.data_type, pd.DataFrame) or issubclass(self.data_type, pd.Series):
             self.__setcolumn_pandas__(key, newval)
@@ -285,11 +277,9 @@ class DataManager(object):
             raise ValueError("Can't set item for data of type {}".format(self.data_type))
         self.sync_metadata()
 
-
     def __setcolumn_pandas__(self, i, newval):
         """if you passed in a pandas dataframe, it has columns which are strings."""
         self.X[i] = newval
-
 
     def __setcolumn_ndarray__(self, i, newval):
         """if you passed in a pandas dataframe, it has columns which are strings."""
@@ -327,7 +317,6 @@ class DataManager(object):
                              "https://github.com/datascienceinc/Skater/issues"
                              .format(type(i))))
 
-
     def __getrows__(self, idx):
         if self.data_type == pd.DataFrame:
             return self.__getrows_pandas__(idx)
@@ -336,21 +325,13 @@ class DataManager(object):
         else:
             raise ValueError("Can't get rows for data of type {}".format(self.data_type))
 
-
     def __getrows_pandas__(self, idx):
         """if you passed in a pandas dataframe, it has columns which are strings."""
-        if StaticTypes.data_types.return_data_type(idx) == StaticTypes.output_types.iterable:
-            i = [self.index.index(i) for i in idx]
-        else:
-            i = [self.index[idx]]
-        return self.X.iloc[i]
-
+        return self.X.iloc[idx]
 
     def __getrows_ndarray__(self, idx):
         """if you passed in a pandas dataframe, it has columns which are strings."""
-        i = [self.index.index(i) for i in idx]
-        return self.X[i]
-
+        return self.X[idx]
 
     def generate_sample(self, sample=True, include_y=False, strategy='random-choice', n_samples=1000,
                         replace=True, bin_count=50):
@@ -414,8 +395,7 @@ class DataManager(object):
             cuts = pd.qcut(range_of_indices, [i / bin_count for i in range(bin_count + 1)])
             cuts = pd.Series(cuts).reset_index()
             indices = cuts.groupby(0)['index'].aggregate(agg).apply(lambda x: ast.literal_eval(x)).values
-            indices = flatten(indices)
-            idx = [self.index[i] for i in indices]
+            idx = list(flatten(indices))
         else:
             raise ValueError("Strategy {0} not recognized, currently supported strategies: {1}".format(
                 strategy,
@@ -446,15 +426,9 @@ class DataManager(object):
 
         """
         dm = DataManager(self[feature_id],
-                         feature_names=[feature_id],
-                         index=self.index)
+                         feature_names=[feature_id])
         return dm.generate_sample(*args, **kwargs)
 
-
-    def set_index(self, index):
-        self.index = index
-        if self.data_type in (pd.DataFrame, pd.Series):
-            self.X.index = index
 
 
     def _labels_by_index(self, data_index):
@@ -464,7 +438,7 @@ class DataManager(object):
         :return:
         """
         # we coerce self.index to a list, so this is fine:
-        numeric_index = [self.index.index(i) for i in data_index]
+        numeric_index = list(data_index)
 
         # do we need to coerce labels to a particular data type?
         return self.y[numeric_index]

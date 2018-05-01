@@ -4,7 +4,7 @@ from .global_interpretation.partial_dependence import PartialDependence
 from .global_interpretation.feature_importance import FeatureImportance
 from ..data import DataManager
 from ..util.logger import build_logger
-
+from warnings import warn
 
 class Interpretation(object):
     """
@@ -48,6 +48,9 @@ class Interpretation(object):
             for details.
 
         """
+
+        if index is not None:
+            warn(DeprecationWarning("Passing an index to the interpreter will be deprecated in a future release."))
         self._log_level = log_level
         self.logger = build_logger(log_level, __name__)
         self.partial_dependence = PartialDependence(self)
