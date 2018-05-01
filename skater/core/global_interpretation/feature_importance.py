@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from functools import partial
 from multiprocess import Pool
+from warnings import warn
+from copy import copy, deepcopy
 
 from ...data import DataManager
 from .base import BaseGlobalInterpretation
@@ -98,7 +100,7 @@ class FeatureImportance(BaseGlobalInterpretation):
             raise FeatureImportanceError("If labels are not provided to the Interpretation object, you"
                                          "can only use feature importance methods that do "
                                          "not require ground truth labels, i.e. method='prediction-variance'")
-
+        # no
         if method == 'prediction-variance':
             inputs = self.data_set.generate_sample(strategy='random-choice',
                                                    include_y=False,
@@ -111,54 +113,30 @@ class FeatureImportance(BaseGlobalInterpretation):
                                                            sample=True,
                                                            n_samples=n_samples)
 
-
         original_predictions = model_instance.predict(inputs)
         n_jobs = None if n_jobs < 0 else n_jobs
-        predict_fn = model_instance._get_static_predictor()
-        executor_instance = Pool(n_jobs)
-        arg_list = self.data_set.feature_ids
-        scorer = model_instance.scorers.get_scorer_function(scorer_type=scorer_type)
-
-        if progressbar:
-            self.interpreter.logger.warn("Progress bars slow down runs by 10-20%. For slightly \n"
-                                         "faster runs, do progress_bar=False")
-            n_iter = len(self.data_set.feature_ids)
-            p = ProgressBar(n_iter, units='features')
-            mapper = executor_instance.imap
-        else:
-            mapper = executor_instance.map
+        predict_fn = deepcopy(model_instance._get_static_predictor())
+        arg_list = deepcopy(self.data_set.feature_ids)
+        scorer = deepcopy(model_instance.scorers.get_scorer_function(scorer_type=scorer_type))
 
         fi_func = partial(compute_feature_importance,
                           input_data=inputs,
                           estimator_fn=predict_fn,
                           original_predictions=original_predictions,
-                          feature_info=self.data_set.feature_info,
-                          feature_names=self.data_set.feature_ids,
+                          feature_info=deepcopy(self.data_set.feature_info),
+                          feature_names=deepcopy(self.data_set.feature_ids),
                           training_labels=labels,
                           method=method,
                           scaled=use_scaling,
                           scorer=scorer)
 
         importances = {}
-        try:
-            if n_jobs == 1:
-                raise ValueError("Skipping to single processing")
-            importance_dicts = []
-            for importance in mapper(fi_func, arg_list):
-                importance_dicts.append(importance)
-                if progressbar:
-                    p.animate()
-        except:
-            self.interpreter.logger.warn("Multiprocessing failed, going single process")
-            importance_dicts = []
-            for importance in map(fi_func, arg_list):
-                importance_dicts.append(importance)
-                if progressbar:
-                    p.animate()
-        finally:
-            executor_instance.close()
-            executor_instance.join()
-            executor_instance.terminate()
+
+        if n_jobs == 1:
+            importance_dicts = FeatureImportance._fi_single_process(fi_func, arg_list, progressbar=progressbar)
+        else:
+            importance_dicts = FeatureImportance._fi_multi_process(fi_func, arg_list, progressbar=progressbar,
+                                                                   n_jobs=n_jobs)
 
         for i in importance_dicts:
             importances.update(i)
@@ -177,6 +155,46 @@ class FeatureImportance(BaseGlobalInterpretation):
 
         importances = divide_zerosafe(importances, (np.ones(importances.shape[0]) * importances.sum()))
         return importances
+
+    @staticmethod
+    def _fi_single_process(fi_func, arg_list, progressbar=True):
+        if progressbar:
+            warn("Progress bars slow down runs by 10-20%. For slightly \n"
+                 "faster runs, do progress_bar=False")
+            n_iter = len(arg_list)
+            p = ProgressBar(n_iter, units='features')
+
+        importance_dicts = []
+        for importance in map(fi_func, arg_list):
+            importance_dicts.append(importance)
+            if progressbar:
+                p.animate()
+        return importance_dicts
+
+    @staticmethod
+    def _fi_multi_process(fi_func, arg_list, progressbar=True, n_jobs=None):
+        executor_instance = Pool(n_jobs)
+        mapper = executor_instance.imap if progressbar else executor_instance.map
+        if progressbar:
+            warn("Progress bars slow down runs by 10-20%. For slightly \n"
+                 "faster runs, do progress_bar=False")
+            n_iter = len(arg_list)
+            p = ProgressBar(n_iter, units='features')
+        try:
+            importance_dicts = []
+            for importance in mapper(fi_func, arg_list):
+                importance_dicts.append(importance)
+                if progressbar:
+                    p.animate()
+        except:
+            warn("Multiprocessing failed, going single process")
+            importance_dicts = FeatureImportance._fi_single_process(fi_func, arg_list, progressbar=progressbar)
+        finally:
+            executor_instance.close()
+            executor_instance.join()
+            executor_instance.terminate()
+
+        return importance_dicts
 
 
     def plot_feature_importance(self, modelinstance, filter_classes=None, ascending=True, ax=None, progressbar=True,
